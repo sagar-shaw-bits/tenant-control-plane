@@ -1,0 +1,11 @@
+.git
+.env
+.env.*
+!.env.example
+*.exe
+*.test
+*.out
+coverage.*
+vendor
+README.md
+LICENSE

@@ -1,0 +1,82 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-tenant}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tenant}
+      POSTGRES_DB: ${POSTGRES_DB:-tenant_control_plane}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    restart: unless-stopped
+
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-tenant}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-tenant}
+    ports:
+      - "${RABBITMQ_PORT:-5672}:5672"
+      - "${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+
+  control-plane:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      HTTP_ADDR: ":8080"
+      DATABASE_URL: "postgres://${POSTGRES_USER:-tenant}:${POSTGRES_PASSWORD:-tenant}@postgres:5432/${POSTGRES_DB:-tenant_control_plane}?sslmode=disable"
+      RABBITMQ_URL: "amqp://${RABBITMQ_USER:-tenant}:${RABBITMQ_PASSWORD:-tenant}@rabbitmq:5672/"
+      OUTBOX_POLL_INTERVAL: ${OUTBOX_POLL_INTERVAL:-200ms}
+      OUTBOX_BATCH_SIZE: ${OUTBOX_BATCH_SIZE:-50}
+      CONSUMER_PREFETCH: ${CONSUMER_PREFETCH:-10}
+      CONSUMER_MAX_RETRIES: ${CONSUMER_MAX_RETRIES:-5}
+    ports:
+      - "${HTTP_PORT:-8080}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    entrypoint: ["/usr/local/bin/worker"]
+    environment:
+      RABBITMQ_URL: "amqp://${RABBITMQ_USER:-tenant}:${RABBITMQ_PASSWORD:-tenant}@rabbitmq:5672/"
+      FAIL_RATE: ${FAIL_RATE:-0}
+      MIN_DELAY_MS: ${MIN_DELAY_MS:-500}
+      MAX_DELAY_MS: ${MAX_DELAY_MS:-2000}
+      DUPLICATE_RATE: ${DUPLICATE_RATE:-0}
+      OUT_OF_ORDER: ${OUT_OF_ORDER:-false}
+      PREFETCH: ${PREFETCH:-10}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
