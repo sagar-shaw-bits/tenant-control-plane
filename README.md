@@ -21,6 +21,10 @@ Docker Compose starts PostgreSQL, RabbitMQ, the API, and worker. Postgres data i
 kept in a named volume. The credentials supplied in Compose and `.env.example`
 are local-development-only defaults; replace them outside local development.
 
+For an end-to-end reviewer walkthrough with Bash and `curl` commands, expected
+results, and a requirement cross-check, see
+[VALIDATION-GUIDE.md](./VALIDATION-GUIDE.md).
+
 ```powershell
 docker compose up --build
 ```
