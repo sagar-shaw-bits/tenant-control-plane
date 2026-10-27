@@ -1,19 +1,12 @@
 # tenant-control-plane
 
+## Introduction
+
+I built this project to explore how tenant provisioning can be handled reliably when the work happens asynchronously. The API records each tenant operation in PostgreSQL and uses a transactional outbox to send tasks to RabbitMQ, while a separate worker simulates provisioning and reports progress. I focused on keeping state transitions and concurrent updates safe and on making worker updates idempotent and tolerant of out-of-order delivery.
+
 ## Architecture
 
-```mermaid
-flowchart LR
-  Client --> API["Control-plane REST API"]
-  API --> Store["PostgreSQL store"]
-  Store --> Tables["Tenants, tasks, outbox"]
-  Tables --> Relay["Outbox relay"]
-  Relay --> TaskQueue["RabbitMQ task queue"]
-  TaskQueue --> Worker["Worker simulator"]
-  Worker --> UpdateQueue["RabbitMQ update queue"]
-  UpdateQueue --> Consumer["Control-plane consumer"]
-  Consumer --> Store
-```
+![Architecture Diagram](referemce/arch_diagram.drawio.png)
 
 ## Run locally
 
@@ -35,11 +28,11 @@ docker compose up --build
 In another terminal, wait until the API is ready and create a tenant:
 
 ```powershell
-curl.exe http://localhost:8080/readyz
-curl.exe -X POST http://localhost:8080/v1/tenants `
-  -H "Content-Type: application/json" `
-  -d '{"slug":"example-tenant","name":"Example tenant"}'
-curl.exe http://localhost:8080/v1/tenants
+curl http://localhost:8080/readyz
+curl -X POST http://localhost:8080/v1/tenants \
+  -H "Content-Type: application/json" \
+  -d '{"slug":"tenant-1","name":"Tenant 1"}'
+curl http://localhost:8080/v1/tenants
 ```
 
 The worker should move the tenant from `provisioning` to `active` automatically.
@@ -50,7 +43,11 @@ The database, broker, and API are exposed on ports 5432, 5672/15672, and 8080
 by default. Set `HTTP_PORT`, `POSTGRES_PORT`, `RABBITMQ_PORT`, or
 `RABBITMQ_MANAGEMENT_PORT` before invoking Compose to change host ports.
 
-Run the test suite from a Bash shell with Docker available:
+The test and check scripts require Go 1.27.3 or newer and Bash. The test
+script also requires Docker with its daemon running; it starts temporary
+PostgreSQL and RabbitMQ containers for integration tests.
+
+Run the test suite:
 
 ```bash
 ./scripts/test.sh
@@ -92,9 +89,6 @@ responses include both the tenant and its asynchronous task:
 | `GET` | `/v1/tasks/:id` | Get a task | `200` |
 | `GET` | `/healthz` | Liveness check | `200` |
 | `GET` | `/readyz` | Dependency readiness check | `200` or `503` |
-
-List responses have an `items` array and include `next_cursor` only when another
-page exists. The default page size is 50 and the maximum is 200.
 
 Errors use a structured body:
 
@@ -210,7 +204,7 @@ docker compose up -d --build --no-deps worker
 ```
 
 To publish worker updates manually, run
-`./scripts/publish-update.sh TASK_ID done [UPDATE_ID]` from Bash. Reuse the
+`./scripts/publish-update.sh TASK_ID done [UPDATE_ID]`. Reuse the
 same optional `UPDATE_ID` to test duplicate delivery. `./scripts/race.sh`
 creates 20 concurrent same-version PATCHes and 20 same-slug tenant creates;
 expected success count for each group is exactly one. Both scripts require
