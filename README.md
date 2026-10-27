@@ -17,6 +17,13 @@ flowchart LR
 
 ## Run locally
 
+Clone the public repository:
+
+```bash
+git clone https://github.com/sagar-shaw-bits/tenant-control-plane.git
+cd tenant-control-plane
+```
+
 Docker Compose starts PostgreSQL, RabbitMQ, the API, and worker. Postgres data is
 kept in a named volume. The credentials supplied in Compose and `.env.example`
 are local-development-only defaults; replace them outside local development.
@@ -153,9 +160,9 @@ Worker updates are applied transactionally with an idempotency key before
 manual acknowledgement. Malformed updates and updates for unknown tasks are
 rejected to the dead-letter queue. Transient database failures receive up to
 five retries with exponential backoff and jitter, then are dead-lettered.
-Stale state transitions are ignored and acknowledged. A terminal result that
-arrives before `in_progress` is intentionally ignored; a timeout reaper is out
-of scope, so that task can remain open.
+Stale state transitions for terminal tasks are ignored and acknowledged. If a
+terminal result arrives before `in_progress`, it is persisted and applied once
+the progress update arrives.
 
 ## Design decisions and limitations
 
@@ -206,4 +213,6 @@ To publish worker updates manually, run
 `./scripts/publish-update.sh TASK_ID done [UPDATE_ID]` from Bash. Reuse the
 same optional `UPDATE_ID` to test duplicate delivery. `./scripts/race.sh`
 creates 20 concurrent same-version PATCHes and 20 same-slug tenant creates;
-expected success count for each group is exactly one.
+expected success count for each group is exactly one. Both scripts require
+Bash, `curl`, and Python 3; `race.sh` also requires the API and worker stack to
+be running with the default successful worker configuration.
